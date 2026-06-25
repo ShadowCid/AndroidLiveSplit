@@ -1,5 +1,6 @@
 package com.livesplit.android
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -7,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.KeyEvent
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -69,7 +71,7 @@ class MainActivity : ComponentActivity() {
                         onSettings = { currentScreen = "SETTINGS" }
                     )
                     "EDIT_SPLITS" -> EditSplitsScreen(onBack = { currentScreen = "DASHBOARD" })
-                    "SETTINGS" -> SettingsScreen(onBack = { currentScreen = "DASHBOARD" })
+                    "SETTINGS" -> SettingsScreen(context = this, onBack = { currentScreen = "DASHBOARD" })
                 }
             }
         }
@@ -99,12 +101,27 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+fun isAccessibilityEnabled(context: Context): Boolean {
+    val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+    val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+    return enabledServices.any { it.resolveInfo.serviceInfo.name == KeyHookAccessibilityService::class.java.name }
+}
 @Composable
 fun MainSettingsScreen(context: Context, onEditSplits: () -> Unit, onSettings: () -> Unit) {
     var showNewRunDialog by remember { mutableStateOf(false) }
     val autosaveFile = File(context.filesDir, "autosave.lss")
 
-    // Check for autosave on startup and load it automatically
+    // Helper: Verify overlay permission
+    fun startOverlay() {
+        if (Settings.canDrawOverlays(context)) {
+            context.startService(Intent(context, FloatingTimerService::class.java))
+        } else {
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+            context.startActivity(intent)
+            Toast.makeText(context, "Please grant Overlay permission", Toast.LENGTH_LONG).show()
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (autosaveFile.exists()) {
             try {
@@ -118,7 +135,7 @@ fun MainSettingsScreen(context: Context, onEditSplits: () -> Unit, onSettings: (
             } catch (e: Exception) {
                 Toast.makeText(context, "Error loading autosave", Toast.LENGTH_SHORT).show()
             }
-            autosaveFile.delete() // Clean up after restoring
+            autosaveFile.delete()
         }
     }
 
@@ -143,14 +160,9 @@ fun MainSettingsScreen(context: Context, onEditSplits: () -> Unit, onSettings: (
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxSize().background(Color.Black).padding(24.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // App Title Header
         Text(
             text = "LiveSplit\nfor Android",
             color = Color.Green,
@@ -160,11 +172,10 @@ fun MainSettingsScreen(context: Context, onEditSplits: () -> Unit, onSettings: (
             modifier = Modifier.padding(top = 16.dp, bottom = 32.dp)
         )
 
-        // Overlay Controls Block
         Button(
-            onClick = { if (Settings.canDrawOverlays(context)) context.startService(Intent(context, FloatingTimerService::class.java)) },
+            onClick = { startOverlay() },
             modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)) // Greenish
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
         ) {
             Text("START OVERLAY", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
@@ -174,64 +185,38 @@ fun MainSettingsScreen(context: Context, onEditSplits: () -> Unit, onSettings: (
         Button(
             onClick = { context.startService(Intent(context, FloatingTimerService::class.java).apply { action = FloatingTimerService.ACTION_STOP_SERVICE }) },
             modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)) // Redish
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
         ) {
             Text("STOP OVERLAY", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(32.dp))
-
-        // Run Management Block
-        Button(
-            onClick = { showNewRunDialog = true },
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) { Text("CREATE NEW RUN") }
-
+        Button(onClick = { showNewRunDialog = true }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("CREATE NEW RUN") }
         Spacer(modifier = Modifier.height(12.dp))
-
-        Button(
-            onClick = onEditSplits,
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) { Text("EDIT SPLITS") }
-
+        Button(onClick = onEditSplits, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("EDIT SPLITS") }
         Spacer(modifier = Modifier.height(32.dp))
-
-        // File Management Block
-        Button(
-            onClick = { loadLauncher.launch("*/*") },
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) { Text("LOAD .LSS") }
-
+        Button(onClick = { loadLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("LOAD .LSS") }
         Spacer(modifier = Modifier.height(12.dp))
-
-        Button(
-            onClick = { saveLauncher.launch("${TimerState.gameName.value.replace(" ", "_")}.lss") },
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) { Text("SAVE .LSS") }
-
+        Button(onClick = { saveLauncher.launch("${TimerState.gameName.value.replace(" ", "_")}.lss") }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("SAVE .LSS") }
         Spacer(modifier = Modifier.height(48.dp))
-
-        // Settings Block
-        Button(
-            onClick = onSettings,
-            modifier = Modifier.fillMaxWidth().height(50.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
-        ) { Text("SETTINGS & KEYBINDS") }
+        Button(onClick = onSettings, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) { Text("SETTINGS & KEYBINDS") }
     }
 
     if (showNewRunDialog) NewRunDialog(onDismiss = { showNewRunDialog = false }, onConfirm = { g, c, s -> TimerState.createNewRun(g, c, s.split(",").map { it.trim() }); showNewRunDialog = false })
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(context: Context, onBack: () -> Unit) {
     val splitKey by TimerState.splitKey.collectAsState()
     val undoKey by TimerState.undoKey.collectAsState()
     val skipKey by TimerState.skipKey.collectAsState()
     val listeningFor by TimerState.listeningForKeybind.collectAsState()
-
     val opacity by TimerState.overlayOpacity.collectAsState()
     val fontSize by TimerState.timerFontSize.collectAsState()
     val useDigital by TimerState.useDigitalFont.collectAsState()
+    // Refresh accessibility state when returning to this screen
+    var isAccessibilityEnabled by remember { mutableStateOf(isAccessibilityEnabled(context)) }
+    LaunchedEffect(Unit) { isAccessibilityEnabled = isAccessibilityEnabled(context) }
 
     Column(modifier = Modifier.fillMaxSize().background(Color.Black).padding(16.dp).verticalScroll(rememberScrollState())) {
         Button(onClick = onBack) { Text("BACK") }
@@ -240,50 +225,23 @@ fun SettingsScreen(onBack: () -> Unit) {
         Text("KEYBINDS", color = Color.Green, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
 
-        KeybindRow("Start / Split", splitKey, listeningFor == 1) { TimerState.listenForKeybind(1) }
-        KeybindRow("Undo", undoKey, listeningFor == 2) { TimerState.listenForKeybind(2) }
-        KeybindRow("Skip", skipKey, listeningFor == 3) { TimerState.listenForKeybind(3) }
+        KeybindRow("Start / Split", splitKey, listeningFor == 1) {TimerState.listenForKeybind(1) }
+        KeybindRow("Undo", undoKey, listeningFor == 2) {TimerState.listenForKeybind(2) }
+        KeybindRow("Skip", skipKey, listeningFor == 3) {TimerState.listenForKeybind(3) }
 
         Spacer(modifier = Modifier.height(32.dp))
-
         Text("OVERLAY APPEARANCE", color = Color.Green, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
 
-        // Opacity Control
-        Text("Background Opacity: ${(opacity * 100).toInt()}%", color = Color.White, modifier = Modifier.padding(top = 8.dp))
-        Slider(
-            value = opacity,
-            onValueChange = { TimerState.overlayOpacity.value = it },
-            valueRange = 0f..1f,
-            colors = SliderDefaults.colors(thumbColor = Color.Green, activeTrackColor = Color.Green)
-        )
-
+        Text("Background Opacity: ${(opacity * 100).toInt()}%", color = Color.White)
+        Slider(value = opacity, onValueChange = { TimerState.overlayOpacity.value = it }, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = Color.Green, activeTrackColor = Color.Green))
         Spacer(modifier = Modifier.height(16.dp))
-
-        // Font Size Control
         Text("Timer Font Size: $fontSize", color = Color.White)
-        Slider(
-            value = fontSize.toFloat(),
-            onValueChange = { TimerState.timerFontSize.value = it.toInt() },
-            valueRange = 20f..60f,
-            steps = 40,
-            colors = SliderDefaults.colors(thumbColor = Color.Green, activeTrackColor = Color.Green)
-        )
-
+        Slider(value = fontSize.toFloat(), onValueChange = { TimerState.timerFontSize.value = it.toInt() }, valueRange = 20f..60f, steps = 40, colors = SliderDefaults.colors(thumbColor = Color.Green, activeTrackColor = Color.Green))
         Spacer(modifier = Modifier.height(16.dp))
-
-        // Font Type Control
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Use Digital Monospace Font", color = Color.White)
-            Switch(
-                checked = useDigital,
-                onCheckedChange = { TimerState.useDigitalFont.value = it },
-                colors = SwitchDefaults.colors(checkedThumbColor = Color.Green, checkedTrackColor = Color(0xFF1B5E20))
-            )
+            Switch(checked = useDigital, onCheckedChange = { TimerState.useDigitalFont.value = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.Green, checkedTrackColor = Color(0xFF1B5E20)))
         }
     }
 }
@@ -301,101 +259,37 @@ fun KeybindRow(label: String, currentKeyCode: Int, isListening: Boolean, onClick
 @Composable
 fun EditSplitsScreen(onBack: () -> Unit) {
     val segments by TimerState.segments.collectAsState()
-    val textFieldColors = OutlinedTextFieldDefaults.colors(
-        focusedTextColor = Color.White,
-        unfocusedTextColor = Color.White,
-        focusedBorderColor = Color.Green,
-        unfocusedBorderColor = Color.Gray,
-        cursorColor = Color.Green
-    )
+    val textFieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color.Green, unfocusedBorderColor = Color.Gray, cursorColor = Color.Green)
 
     Column(modifier = Modifier.fillMaxSize().background(Color.Black).padding(16.dp)) {
         Button(onClick = onBack) { Text("BACK") }
         Spacer(modifier = Modifier.height(16.dp))
-
         LazyColumn(modifier = Modifier.weight(1f)) {
-            // Using the new segment.id as a unique key prevents data jumping when removing segments!
             itemsIndexed(segments, key = { _, seg -> seg.id }) { index, segment ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF222222))
-                ) {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF222222))) {
                     Column(modifier = Modifier.padding(12.dp)) {
-
-                        // Name and Delete Row
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = segment.name,
-                                onValueChange = { TimerState.updateSegmentName(index, it) },
-                                label = { Text("Segment Name", color = Color.Gray) },
-                                modifier = Modifier.weight(1f),
-                                colors = textFieldColors
-                            )
+                            OutlinedTextField(value = segment.name, onValueChange = { TimerState.updateSegmentName(index, it) }, label = { Text("Segment Name", color = Color.Gray) }, modifier = Modifier.weight(1f), colors = textFieldColors)
                             Spacer(modifier = Modifier.width(8.dp))
-
-                            // Subsplit Toggle
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = segment.isSubsplit,
-                                    onCheckedChange = { TimerState.updateSegmentSubsplit(index, it) },
-                                    colors = CheckboxDefaults.colors(checkedColor = Color.Green, uncheckedColor = Color.Gray)
-                                )
+                                Checkbox(checked = segment.isSubsplit, onCheckedChange = { TimerState.updateSegmentSubsplit(index, it) }, colors = CheckboxDefaults.colors(checkedColor = Color.Green, uncheckedColor = Color.Gray))
                                 Text("Sub", color = Color.White, fontSize = 12.sp)
                             }
-
                             Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = { TimerState.removeSegment(index) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
-                            ) {
-                                Text("X", fontWeight = FontWeight.Bold, color = Color.White)
-                            }
+                            Button(onClick = { TimerState.removeSegment(index) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))) { Text("X", fontWeight = FontWeight.Bold, color = Color.White) }
                         }
-
                         Spacer(modifier = Modifier.height(4.dp))
-
-                        // Times Row
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // Local state keeps text raw while typing (e.g., allows trailing ".")
-                            var pbText by remember {
-                                mutableStateOf(if (segment.personalBestTimeMs == 0L) "" else TimerState.formatTime(segment.personalBestTimeMs))
-                            }
-                            var bestText by remember {
-                                mutableStateOf(if (segment.bestSegmentTimeMs == 0L) "" else TimerState.formatTime(segment.bestSegmentTimeMs))
-                            }
-
-                            OutlinedTextField(
-                                value = pbText,
-                                onValueChange = {
-                                    pbText = it
-                                    TimerState.updateSegmentPB(index, TimerState.parseTimeStringToMs(it))
-                                },
-                                label = { Text("PB Time", color = Color.Gray) },
-                                modifier = Modifier.weight(1f),
-                                colors = textFieldColors
-                            )
-                            OutlinedTextField(
-                                value = bestText,
-                                onValueChange = {
-                                    bestText = it
-                                    TimerState.updateSegmentBest(index, TimerState.parseTimeStringToMs(it))
-                                },
-                                label = { Text("Best Segment", color = Color.Gray) },
-                                modifier = Modifier.weight(1f),
-                                colors = textFieldColors
-                            )
+                            var pbText by remember { mutableStateOf(if (segment.personalBestTimeMs == 0L) "" else TimerState.formatTime(segment.personalBestTimeMs)) }
+                            var bestText by remember { mutableStateOf(if (segment.bestSegmentTimeMs == 0L) "" else TimerState.formatTime(segment.bestSegmentTimeMs)) }
+                            OutlinedTextField(value = pbText, onValueChange = { pbText = it; TimerState.updateSegmentPB(index, TimerState.parseTimeStringToMs(it)) }, label = { Text("PB Time", color = Color.Gray) }, modifier = Modifier.weight(1f), colors = textFieldColors)
+                            OutlinedTextField(value = bestText, onValueChange = { bestText = it; TimerState.updateSegmentBest(index, TimerState.parseTimeStringToMs(it)) }, label = { Text("Best Segment", color = Color.Gray) }, modifier = Modifier.weight(1f), colors = textFieldColors)
                         }
                     }
                 }
             }
-
-            // Add Split Button appended to bottom of list
             item {
-                Button(
-                    onClick = { TimerState.addSegment("New Split") },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-                ) {
+                Button(onClick = { TimerState.addSegment("New Split") }, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp).height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) {
                     Text("ADD SPLIT", fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
@@ -406,22 +300,9 @@ fun EditSplitsScreen(onBack: () -> Unit) {
 @Composable
 fun NewRunDialog(onDismiss: () -> Unit, onConfirm: (String, String, String) -> Unit) {
     var game by remember { mutableStateOf("") }; var cat by remember { mutableStateOf("") }; var segs by remember { mutableStateOf("") }
-
-    val textFieldColors = OutlinedTextFieldDefaults.colors(
-        focusedTextColor = Color.White,
-        unfocusedTextColor = Color.White,
-        focusedBorderColor = Color.Green,
-        unfocusedBorderColor = Color.Gray,
-        focusedLabelColor = Color.Green,
-        unfocusedLabelColor = Color.LightGray,
-        cursorColor = Color.Green
-    )
-
+    val textFieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Color.Green, unfocusedBorderColor = Color.Gray, focusedLabelColor = Color.Green, unfocusedLabelColor = Color.LightGray, cursorColor = Color.Green)
     Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier.padding(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF222222)) // Dark gray card background
-        ) {
+        Card(modifier = Modifier.padding(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF222222))) {
             Column(modifier = Modifier.padding(16.dp)) {
                 OutlinedTextField(value = game, onValueChange = { game = it }, label = { Text("Game") }, colors = textFieldColors, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = cat, onValueChange = { cat = it }, label = { Text("Category") }, colors = textFieldColors, modifier = Modifier.fillMaxWidth())
