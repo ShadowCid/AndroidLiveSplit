@@ -36,7 +36,7 @@ Since this app isn't from the Play Store, Android 13+ might block you from enabl
 
 6. Confirm with your screen lock/PIN.
 
-7.Go back to the app, tap the "Grant Accessibility Access" button, and it should work perfectly!
+7. Go back to the app, tap the "Grant Accessibility Access" button, and it should work perfectly!
 
 
 ## **🤝 Credits**
