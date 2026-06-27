@@ -9,9 +9,9 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@android:drawable/ic_media_play"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:roundIcon="@android:drawable/ic_media_play"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
@@ -26,15 +26,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Floating overlay service with foreground service type specifier -->
+        <!-- The Floating Window Service -->
         <service
             android:name=".FloatingTimerService"
-            android:foregroundServiceType="specialUse"
-            android:exported="false" />
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
 
-        <!-- Key hook interceptor accessibility service -->
+        <!-- The Hardware Hook Accessibility Service -->
         <service
             android:name=".KeyHookAccessibilityService"
+            android:label="AndroidLiveSplit Controller Hook"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -46,5 +48,4 @@
         </service>
 
     </application>
-
 </manifest>

@@ -25,11 +25,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import java.io.File
@@ -78,6 +81,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // App-level keybind listener for when the settings menu is open
         if (TimerState.listeningForKeybind.value != 0) {
             TimerState.assignKeybind(keyCode)
             return true
@@ -106,6 +110,7 @@ fun isAccessibilityEnabled(context: Context): Boolean {
     val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
     return enabledServices.any { it.resolveInfo.serviceInfo.name == KeyHookAccessibilityService::class.java.name }
 }
+
 @Composable
 fun MainSettingsScreen(context: Context, onEditSplits: () -> Unit, onSettings: () -> Unit) {
     var showNewRunDialog by remember { mutableStateOf(false) }
@@ -211,12 +216,26 @@ fun SettingsScreen(context: Context, onBack: () -> Unit) {
     val undoKey by TimerState.undoKey.collectAsState()
     val skipKey by TimerState.skipKey.collectAsState()
     val listeningFor by TimerState.listeningForKeybind.collectAsState()
+
     val opacity by TimerState.overlayOpacity.collectAsState()
     val fontSize by TimerState.timerFontSize.collectAsState()
     val useDigital by TimerState.useDigitalFont.collectAsState()
-    // Refresh accessibility state when returning to this screen
-    var isAccessibilityEnabled by remember { mutableStateOf(isAccessibilityEnabled(context)) }
-    LaunchedEffect(Unit) { isAccessibilityEnabled = isAccessibilityEnabled(context) }
+
+    // UI States for Accessibility
+    var isAccessEnabled by remember { mutableStateOf(isAccessibilityEnabled(context)) }
+    var showDisclosure by remember { mutableStateOf(false) }
+
+    // This lifecycle observer updates the UI instantly when returning from the Android Settings menu
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isAccessEnabled = isAccessibilityEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(Color.Black).padding(16.dp).verticalScroll(rememberScrollState())) {
         Button(onClick = onBack) { Text("BACK") }
@@ -225,9 +244,35 @@ fun SettingsScreen(context: Context, onBack: () -> Unit) {
         Text("KEYBINDS", color = Color.Green, fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
 
-        KeybindRow("Start / Split", splitKey, listeningFor == 1) {TimerState.listenForKeybind(1) }
-        KeybindRow("Undo", undoKey, listeningFor == 2) {TimerState.listenForKeybind(2) }
-        KeybindRow("Skip", skipKey, listeningFor == 3) {TimerState.listenForKeybind(3) }
+        // Conditional UI: Show a warning/enable button if the service is turned off
+        if (!isAccessEnabled) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF3E2723)), // Dark reddish-brown
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Controller support is currently disabled.", color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { showDisclosure = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD84315))
+                    ) {
+                        Text("ENABLE CONTROLLER SUPPORT", color = Color.White)
+                    }
+                }
+            }
+        }
+
+        // Keybind controls (Clicking them while disabled will prompt the disclosure dialog)
+        KeybindRow("Start / Split", splitKey, listeningFor == 1, isAccessEnabled) {
+            if (isAccessEnabled) TimerState.listenForKeybind(1) else showDisclosure = true
+        }
+        KeybindRow("Undo", undoKey, listeningFor == 2, isAccessEnabled) {
+            if (isAccessEnabled) TimerState.listenForKeybind(2) else showDisclosure = true
+        }
+        KeybindRow("Skip", skipKey, listeningFor == 3, isAccessEnabled) {
+            if (isAccessEnabled) TimerState.listenForKeybind(3) else showDisclosure = true
+        }
 
         Spacer(modifier = Modifier.height(32.dp))
         Text("OVERLAY APPEARANCE", color = Color.Green, fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -244,14 +289,43 @@ fun SettingsScreen(context: Context, onBack: () -> Unit) {
             Switch(checked = useDigital, onCheckedChange = { TimerState.useDigitalFont.value = it }, colors = SwitchDefaults.colors(checkedThumbColor = Color.Green, checkedTrackColor = Color(0xFF1B5E20)))
         }
     }
+
+    // Google Play Compliant Prominent Disclosure with Clarified Instructions
+    if (showDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showDisclosure = false },
+            title = { Text("Permission Required", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("LiveSplit for Android uses the Accessibility Service API to allow you to control the speedrun timer using physical controller buttons (like a Bluetooth gamepad) while another game is actively on screen.\n\n" +
+                        "HOW TO ENABLE:\n" +
+                        "When the settings page opens, find AndroidLiveSplit Controller Hook and toggle the main 'Use AndroidLiveSplit Controller Hook' switch to ON. You do NOT need to enable the shortcut.\n\n" +
+                        "This app does NOT collect, store, transmit, or share any personal data, screen content, or keystrokes.")
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showDisclosure = false
+                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }) { Text("Agree & Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDisclosure = false }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable
-fun KeybindRow(label: String, currentKeyCode: Int, isListening: Boolean, onClick: () -> Unit) {
+fun KeybindRow(label: String, currentKeyCode: Int, isListening: Boolean, isEnabled: Boolean, onClick: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = Color.White, fontSize = 16.sp)
-        Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = if (isListening) Color.Green else Color.DarkGray)) {
-            Text(if (isListening) "PRESS KEY..." else if (currentKeyCode == -1) "NONE" else KeyEvent.keyCodeToString(currentKeyCode).replace("KEYCODE_", ""))
+        Text(label, color = if (isEnabled) Color.White else Color.Gray, fontSize = 16.sp)
+        Button(
+            onClick = onClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isListening) Color.Green else if (isEnabled) Color.DarkGray else Color.DarkGray.copy(alpha = 0.5f)
+            )
+        ) {
+            val keyName = if (isListening) "PRESS KEY..." else if (currentKeyCode == -1) "NONE" else KeyEvent.keyCodeToString(currentKeyCode).replace("KEYCODE_", "")
+            Text(keyName, color = if (isEnabled || isListening) Color.White else Color.Gray)
         }
     }
 }

@@ -59,6 +59,7 @@ class FloatingTimerService : LifecycleService(), ViewModelStoreOwner, SavedState
 
     override fun onCreate() {
         super.onCreate()
+        TimerState.isOverlayRunning.value = true
         savedStateRegistryController.performRestore(null)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
@@ -322,6 +323,7 @@ class FloatingTimerService : LifecycleService(), ViewModelStoreOwner, SavedState
     }
 
     override fun onDestroy() {
+        TimerState.isOverlayRunning.value = false
         myViewModelStore.clear()
 
         // Only attempt to autosave if the overlay was actually rendering data

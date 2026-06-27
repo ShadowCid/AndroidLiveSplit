@@ -42,6 +42,8 @@ object TimerState {
     val skipKey = MutableStateFlow(-1)
     val listeningForKeybind = MutableStateFlow(0)
 
+    val isOverlayRunning = MutableStateFlow(false)
+
     fun listenForKeybind(actionId: Int) { listeningForKeybind.value = actionId }
 
     fun assignKeybind(keyCode: Int) {

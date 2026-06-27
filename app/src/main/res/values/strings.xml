@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AndroidLiveSplit</string>
-    <string name="accessibility_description">Globally intercepts configured controller and physical keyboard hotkeys (e.g. Volume Up or Spacebar) to trigger precise split times in your floating timer overlay, without passing the key events through to active games.</string>
+    <string name="accessibility_description">This service is required to intercept physical controller key events globally, allowing you to start, split, and undo your speedrun timer while actively playing a game.</string>
+    <string name="accessibility_summary">Enables global hardware controller support for the timer.</string>
 </resources>
